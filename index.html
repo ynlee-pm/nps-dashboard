@@ -63,6 +63,34 @@ body { font-family: 'Segoe UI','Malgun Gothic',sans-serif; background:var(--bg);
 .filter-bar button:hover { background:var(--primary-light); }
 .filter-bar button.reset { background:#E2E8F0; color:var(--text); }
 
+/* Multi-select Dropdown */
+.multi-select { position:relative; min-width:200px; }
+.multi-select-trigger {
+  padding:6px 10px; border:1px solid var(--border); border-radius:6px; font-size:13px;
+  background:#fff; color:var(--text); cursor:pointer; display:flex; align-items:center; gap:6px;
+  min-height:32px; flex-wrap:wrap;
+}
+.multi-select-trigger:hover { border-color:var(--primary); }
+.multi-select-trigger .placeholder { color:var(--text-muted); }
+.multi-select-trigger .badge-count {
+  background:var(--primary); color:#fff; padding:2px 6px; border-radius:10px;
+  font-size:11px; font-weight:700;
+}
+.multi-select-dropdown {
+  position:absolute; top:100%; left:0; right:0; margin-top:4px;
+  background:#fff; border:1px solid var(--border); border-radius:6px;
+  box-shadow:0 4px 12px rgba(0,0,0,.1); z-index:100; max-height:300px; overflow-y:auto;
+  display:none;
+}
+.multi-select-dropdown.open { display:block; }
+.multi-select-option {
+  padding:8px 12px; font-size:13px; cursor:pointer; display:flex; align-items:center; gap:8px;
+  transition:background .1s;
+}
+.multi-select-option:hover { background:var(--bg); }
+.multi-select-option input[type="checkbox"] { cursor:pointer; }
+.multi-select-option label { cursor:pointer; flex:1; user-select:none; }
+
 /* KPI Cards */
 .kpi-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:16px; padding:20px 32px; }
 .kpi-card {
@@ -153,9 +181,21 @@ body { font-family: 'Segoe UI','Malgun Gothic',sans-serif; background:var(--bg);
 <!-- Filters -->
 <div class="filter-bar">
   <label>상품</label>
-  <select id="filterProduct"><option value="">전체</option></select>
+  <div class="multi-select" id="filterProductWrap">
+    <div class="multi-select-trigger" onclick="toggleDropdown('filterProduct')">
+      <span class="placeholder">전체</span>
+    </div>
+    <div class="multi-select-dropdown" id="filterProductDropdown"></div>
+  </div>
+
   <label>연령대</label>
-  <select id="filterAge"><option value="">전체</option></select>
+  <div class="multi-select" id="filterAgeWrap">
+    <div class="multi-select-trigger" onclick="toggleDropdown('filterAge')">
+      <span class="placeholder">전체</span>
+    </div>
+    <div class="multi-select-dropdown" id="filterAgeDropdown"></div>
+  </div>
+
   <label>기간</label>
   <input type="date" id="filterFrom">
   <span>~</span>
@@ -345,15 +385,12 @@ const COLORS = {
 // ============================================================
 // FILTER LOGIC
 // ============================================================
+const selectedFilters = {
+  products: new Set(),
+  ages: new Set()
+};
+
 function initFilters() {
-  const prodSel = document.getElementById('filterProduct');
-  const ageSel = document.getElementById('filterAge');
-  const prevProd = prodSel.value;
-  const prevAge = ageSel.value;
-
-  prodSel.innerHTML = '<option value="">전체</option>';
-  ageSel.innerHTML = '<option value="">전체</option>';
-
   const products = [...new Set(allData.map(d => d.product))].sort();
   const ages = [...new Set(allData.map(d => d.ageGroup))].sort((a,b) => {
     const na = parseInt(a), nb = parseInt(b);
@@ -362,11 +399,8 @@ function initFilters() {
     return na - nb;
   });
 
-  products.forEach(p => { const o = document.createElement('option'); o.value = p; o.textContent = p.length > 25 ? p.slice(0,25)+'…' : p; o.title = p; prodSel.appendChild(o); });
-  ages.forEach(a => { const o = document.createElement('option'); o.value = a; o.textContent = a; ageSel.appendChild(o); });
-
-  prodSel.value = prevProd;
-  ageSel.value = prevAge;
+  renderMultiSelect('filterProduct', products, 'products');
+  renderMultiSelect('filterAge', ages, 'ages');
 
   const dates = allData.map(d => d.submittedAt).filter(Boolean);
   if (dates.length) {
@@ -377,37 +411,99 @@ function initFilters() {
   }
 }
 
+function renderMultiSelect(id, items, filterKey) {
+  const dropdown = document.getElementById(id + 'Dropdown');
+  dropdown.innerHTML = '';
+
+  items.forEach(item => {
+    const div = document.createElement('div');
+    div.className = 'multi-select-option';
+    const checkId = `${id}_${item.replace(/\s+/g, '_')}`;
+    div.innerHTML = `
+      <input type="checkbox" id="${checkId}" value="${item}" onchange="updateMultiSelect('${id}', '${filterKey}')">
+      <label for="${checkId}" title="${item}">${item.length > 30 ? item.slice(0,30)+'…' : item}</label>
+    `;
+    dropdown.appendChild(div);
+  });
+}
+
+function toggleDropdown(id) {
+  const dropdown = document.getElementById(id + 'Dropdown');
+  const isOpen = dropdown.classList.contains('open');
+
+  // Close all dropdowns
+  document.querySelectorAll('.multi-select-dropdown').forEach(d => d.classList.remove('open'));
+
+  // Toggle current
+  if (!isOpen) dropdown.classList.add('open');
+}
+
+function updateMultiSelect(id, filterKey) {
+  const dropdown = document.getElementById(id + 'Dropdown');
+  const checkboxes = dropdown.querySelectorAll('input[type="checkbox"]');
+  const selected = Array.from(checkboxes).filter(cb => cb.checked).map(cb => cb.value);
+
+  selectedFilters[filterKey] = new Set(selected);
+
+  const trigger = dropdown.previousElementSibling;
+  if (selected.length === 0) {
+    trigger.innerHTML = '<span class="placeholder">전체</span>';
+  } else {
+    trigger.innerHTML = `<span class="badge-count">${selected.length}개 선택</span>`;
+  }
+}
+
 function formatDateInput(d) {
   return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
 }
 
 function applyFilters() {
-  const prod = document.getElementById('filterProduct').value;
-  const age = document.getElementById('filterAge').value;
   const from = document.getElementById('filterFrom').value ? new Date(document.getElementById('filterFrom').value) : null;
   const to = document.getElementById('filterTo').value ? new Date(document.getElementById('filterTo').value + 'T23:59:59') : null;
 
   filteredData = allData.filter(d => {
-    if (prod && d.product !== prod) return false;
-    if (age && d.ageGroup !== age) return false;
+    if (selectedFilters.products.size > 0 && !selectedFilters.products.has(d.product)) return false;
+    if (selectedFilters.ages.size > 0 && !selectedFilters.ages.has(d.ageGroup)) return false;
     if (from && d.submittedAt < from) return false;
     if (to && d.submittedAt > to) return false;
     return true;
   });
   updateAll();
+
+  // Close dropdowns after applying
+  document.querySelectorAll('.multi-select-dropdown').forEach(d => d.classList.remove('open'));
 }
 
 function resetFilters() {
-  document.getElementById('filterProduct').value = '';
-  document.getElementById('filterAge').value = '';
+  // Clear selected filters
+  selectedFilters.products.clear();
+  selectedFilters.ages.clear();
+
+  // Uncheck all checkboxes
+  document.querySelectorAll('.multi-select-dropdown input[type="checkbox"]').forEach(cb => cb.checked = false);
+
+  // Reset trigger displays
+  document.querySelectorAll('.multi-select-trigger').forEach(trigger => {
+    trigger.innerHTML = '<span class="placeholder">전체</span>';
+  });
+
+  // Reset date filters
   const dates = allData.map(d => d.submittedAt).filter(Boolean);
   if (dates.length) {
     document.getElementById('filterFrom').value = formatDateInput(new Date(Math.min(...dates)));
     document.getElementById('filterTo').value = formatDateInput(new Date(Math.max(...dates)));
   }
+
   filteredData = [...allData];
   updateAll();
 }
+
+// Close dropdowns when clicking outside
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.multi-select')) {
+    document.querySelectorAll('.multi-select-dropdown').forEach(d => d.classList.remove('open'));
+  }
+});
 
 // ============================================================
 // CALCULATIONS
